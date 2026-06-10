@@ -1,6 +1,6 @@
 'use client'
-import { useLayoutEffect, useMemo } from 'react'
-import { createPortal, useFrame, useThree } from '@react-three/fiber'
+import { useEffect, useMemo, useRef } from 'react'
+import { useFrame } from '@react-three/fiber'
 import { useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 
@@ -30,119 +30,98 @@ const fragmentShader = `
     vec2 bgUV = ndc * 0.5 + 0.5;
     vec3 col = texture2D(uBackground, bgUV).rgb;
 
-    // Green desaturation
     float lum = dot(col, vec3(0.299, 0.587, 0.114));
     col.g = mix(col.g, lum, uDesatGreen);
 
-    // Overall desaturation
     float gray = dot(col, vec3(0.299, 0.587, 0.114));
     col = mix(col, vec3(gray), uDesatOverall);
 
-    // Darkening
     col *= (1.0 - uDarken);
 
-    // Blob on top
     vec4 blob = texture2D(uTexture, vUv);
     gl_FragColor = vec4(mix(col, blob.rgb, blob.a), 1.0);
   }
 `
 
-type OverlayUniforms = {
-  uTexture:     { value: THREE.Texture | null }
-  uBackground:  { value: THREE.Texture | null }
-  uTime:        { value: number }
-  uDesatGreen:  { value: number }
-  uDarken:      { value: number }
-  uDesatOverall:{ value: number }
-}
-
-// Mesh lives inside createPortal; receives the stable uniforms object from parent.
-function OverlayMesh({ uniforms }: { uniforms: OverlayUniforms }) {
-  const { size } = useThree()
-  const texture = useTexture('/Azoor-Blobs.png')
-
-  // Wire texture into the shared uniforms object once loaded.
-  useLayoutEffect(() => {
-    uniforms.uTexture.value = texture
-  }, [texture, uniforms])
-
-  const { planeW, planeH } = useMemo(() => {
-    const imgW = texture.image?.naturalWidth  ?? texture.image?.width  ?? 1
-    const imgH = texture.image?.naturalHeight ?? texture.image?.height ?? 1
-    return { planeW: size.height * (imgW / imgH), planeH: size.height }
-  }, [texture, size.height])
-
-  return (
-    <mesh position={[-size.width / 4, 0, 0]}>
-      <planeGeometry args={[planeW, planeH]} />
-      <shaderMaterial
-        vertexShader={vertexShader}
-        fragmentShader={fragmentShader}
-        uniforms={uniforms}
-        depthTest={false}
-      />
-    </mesh>
-  )
-}
-
-type OverlayProps = {
-  desatGreen:   number
-  darken:       number
-  desatOverall: number
-}
+type OverlayProps = { desatGreen: number; darken: number; desatOverall: number }
 
 export default function VisionOverlay({ desatGreen, darken, desatOverall }: OverlayProps) {
-  const { gl, scene, camera, size } = useThree()
+  const texture = useTexture('/Azoor-Blobs.png')
 
-  const overlayScene = useMemo(() => new THREE.Scene(), [])
+  // Ref is always current — no stale closure possible in useFrame.
+  const vals = useRef({ desatGreen, darken, desatOverall })
+  vals.current = { desatGreen, darken, desatOverall }
 
-  const renderTarget = useMemo(
-    () => new THREE.WebGLRenderTarget(size.width, size.height),
-    [size.width, size.height]
-  )
-
+  const overlayScene  = useMemo(() => new THREE.Scene(), [])
   const overlayCamera = useMemo(() => {
-    const cam = new THREE.OrthographicCamera(
-      -size.width / 2,  size.width / 2,
-       size.height / 2, -size.height / 2,
-      0.1, 10
-    )
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
     cam.position.z = 5
     return cam
-  }, [size.width, size.height])
+  }, [])
+  const renderTarget  = useMemo(() => new THREE.WebGLRenderTarget(1, 1), [])
 
-  // Uniforms live here (not inside the portal) so updates from props are reliable.
-  const uniforms = useMemo<OverlayUniforms>(() => ({
-    uTexture:     { value: null },
-    uBackground:  { value: renderTarget.texture },
-    uTime:        { value: 0 },
-    uDesatGreen:  { value: desatGreen },
-    uDarken:      { value: darken },
-    uDesatOverall:{ value: desatOverall },
-  }), [renderTarget]) // intentionally excludes slider values — they're updated every frame below
+  // Build the mesh imperatively — no R3F reconciler involved.
+  const overlayMesh = useMemo(() => {
+    const mat = new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      uniforms: {
+        uTexture:     { value: null as THREE.Texture | null },
+        uBackground:  { value: null as THREE.Texture | null },
+        uTime:        { value: 0 },
+        uDesatGreen:  { value: 0.5 },
+        uDarken:      { value: 0.1 },
+        uDesatOverall:{ value: 0.15 },
+      },
+      depthTest: false,
+    })
+    return new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat)
+  }, [])
 
-  useFrame(({ clock }) => {
-    // Update slider-driven values every frame from the latest closure.
-    uniforms.uBackground.value  = renderTarget.texture
-    uniforms.uDesatGreen.value  = desatGreen
-    uniforms.uDarken.value      = darken
-    uniforms.uDesatOverall.value = desatOverall
-    uniforms.uTime.value        = clock.getElapsedTime()
+  useEffect(() => {
+    overlayScene.add(overlayMesh)
+    return () => { overlayScene.remove(overlayMesh) }
+  }, [overlayScene, overlayMesh])
 
-    // Capture main scene to render target so the shader can sample it.
+  useFrame(({ gl, scene, camera, size, clock }) => {
+    const mat = overlayMesh.material as THREE.ShaderMaterial
+    const imgW = texture.image?.naturalWidth  ?? texture.image?.width  ?? 1
+    const imgH = texture.image?.naturalHeight ?? texture.image?.height ?? 1
+    const planeW = size.height * (imgW / imgH)
+
+    // Sync render target and orthographic camera to current viewport.
+    if (renderTarget.width !== size.width || renderTarget.height !== size.height) {
+      renderTarget.setSize(size.width, size.height)
+    }
+    overlayCamera.left   = -size.width  / 2
+    overlayCamera.right  =  size.width  / 2
+    overlayCamera.top    =  size.height / 2
+    overlayCamera.bottom = -size.height / 2
+    overlayCamera.updateProjectionMatrix()
+
+    overlayMesh.scale.set(planeW, size.height, 1)
+    overlayMesh.position.set(-size.width / 4, 0, 0)
+
+    // Update uniforms directly on the material — guaranteed fresh every frame.
+    mat.uniforms.uTexture.value      = texture
+    mat.uniforms.uBackground.value   = renderTarget.texture
+    mat.uniforms.uTime.value         = clock.getElapsedTime()
+    mat.uniforms.uDesatGreen.value   = vals.current.desatGreen
+    mat.uniforms.uDarken.value       = vals.current.darken
+    mat.uniforms.uDesatOverall.value = vals.current.desatOverall
+
+    // Capture main scene → render target (for background sampling).
     gl.setRenderTarget(renderTarget)
     gl.render(scene, camera)
     gl.setRenderTarget(null)
 
-    // Draw main scene to screen.
+    // Draw main scene to screen, then overlay on top.
     gl.render(scene, camera)
-
-    // Draw overlay on top.
     gl.autoClear = false
     gl.clearDepth()
     gl.render(overlayScene, overlayCamera)
     gl.autoClear = true
   }, 1)
 
-  return createPortal(<OverlayMesh uniforms={uniforms} />, overlayScene)
+  return null
 }
