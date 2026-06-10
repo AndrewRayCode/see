@@ -1,4 +1,6 @@
+/* eslint-disable react-hooks/immutability */
 'use client'
+
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useTexture } from '@react-three/drei'
@@ -21,6 +23,7 @@ const fragmentShader = `
   uniform float uDesatGreen;
   uniform float uDarken;
   uniform float uDesatOverall;
+  uniform float uFadeWidth;
 
   varying vec2 vUv;
   varying vec4 vClipPos;
@@ -39,7 +42,11 @@ const fragmentShader = `
     col *= (1.0 - uDarken);
 
     vec4 blob = texture2D(uTexture, vUv);
-    gl_FragColor = vec4(mix(col, blob.rgb, blob.a), 1.0);
+    vec3 final = mix(col, blob.rgb, blob.a);
+
+    // Fade out toward the right edge so there's no hard cut at screen centre.
+    float fadeAlpha = 1.0 - smoothstep(1.0 - uFadeWidth, 1.0, vUv.x);
+    gl_FragColor = vec4(final, fadeAlpha);
   }
 `
 
@@ -49,8 +56,10 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall }: Over
   const texture = useTexture('/Azoor-Blobs.png')
 
   // Ref is always current — no stale closure possible in useFrame.
-  const vals = useRef({ desatGreen, darken, desatOverall })
-  vals.current = { desatGreen, darken, desatOverall }
+  const vals = useRef({ desatGreen, darken, desatOverall });
+  useEffect(() => {
+    vals.current = { desatGreen, darken, desatOverall }
+  }, [desatGreen, darken, desatOverall]);
 
   const overlayScene  = useMemo(() => new THREE.Scene(), [])
   const overlayCamera = useMemo(() => {
@@ -72,7 +81,9 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall }: Over
         uDesatGreen:  { value: 0.5 },
         uDarken:      { value: 0.1 },
         uDesatOverall:{ value: 0.15 },
+        uFadeWidth:   { value: 0.05 },
       },
+      transparent: true,
       depthTest: false,
     })
     return new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat)
@@ -84,8 +95,10 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall }: Over
   }, [overlayScene, overlayMesh])
 
   useFrame(({ gl, scene, camera, size, clock }) => {
-    const mat = overlayMesh.material as THREE.ShaderMaterial
+    const mat = overlayMesh.material as THREE.ShaderMaterial;
+    // @ts-expect-error unknown image type
     const imgW = texture.image?.naturalWidth  ?? texture.image?.width  ?? 1
+    // @ts-expect-error unknown image type
     const imgH = texture.image?.naturalHeight ?? texture.image?.height ?? 1
     const planeW = size.height * (imgW / imgH)
 
@@ -109,6 +122,8 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall }: Over
     mat.uniforms.uDesatGreen.value   = vals.current.desatGreen
     mat.uniforms.uDarken.value       = vals.current.darken
     mat.uniforms.uDesatOverall.value = vals.current.desatOverall
+    // 1% of screen width expressed as a fraction of the plane's UV width.
+    mat.uniforms.uFadeWidth.value    = 0.2;
 
     // Capture main scene → render target (for background sampling).
     gl.setRenderTarget(renderTarget)
