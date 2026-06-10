@@ -6,6 +6,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Environment } from '@react-three/drei'
 import * as THREE from 'three'
 import VisionOverlay from './VisionOverlay'
+import FloaterSphere from './FloaterSphere'
 
 const MAX_ANGLE = 15 * (Math.PI / 180)
 const LERP = 0.06
@@ -75,6 +76,7 @@ export default function SkyboxScene() {
           files={['/posx.jpg', '/negx.jpg', '/posy.jpg', '/negy.jpg', '/posz.jpg', '/negz.jpg']}
           background
         />
+        <FloaterSphere />
         <VisionOverlay {...values} />
       </Canvas>
 
