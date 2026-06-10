@@ -37,10 +37,11 @@ function CameraController() {
 }
 
 const sliders = [
-  { key: 'desatGreen',  label: 'Green Desat',   min: 0, max: 1 },
-  { key: 'darken',      label: 'Darken',         min: 0, max: 1 },
-  { key: 'desatOverall',label: 'Overall Desat',  min: 0, max: 1 },
-  { key: 'brightness',label: 'Brightness',  min: 0, max: 1 },
+  { key: 'desatGreen',    label: 'Green Desat',    min: 0, max: 1 },
+  { key: 'darken',        label: 'Darken',          min: 0, max: 1 },
+  { key: 'desatOverall',  label: 'Overall Desat',   min: 0, max: 1 },
+  { key: 'brightness',    label: 'Brightness',      min: 0, max: 1 },
+  { key: 'shimmerOpacity',label: 'Shimmer Opacity', min: 0, max: 1 },
 ] as const
 
 type SliderKey = typeof sliders[number]['key']
@@ -49,10 +50,11 @@ type OverlayValues = Record<SliderKey, number>
 export default function SkyboxScene() {
   const [canvasKey, setCanvasKey] = useState(0)
   const [values, setValues] = useState<OverlayValues>({
-    desatGreen:   0.5,
-    darken:       0.1,
-    desatOverall: 0.15,
-    brightness: 0.1,
+    desatGreen:    0.5,
+    darken:        0.1,
+    desatOverall:  0.15,
+    brightness:    0.1,
+    shimmerOpacity:0.05,
   })
 
   const handleCreated = useCallback(({ gl }: { gl: THREE.WebGLRenderer }) => {
