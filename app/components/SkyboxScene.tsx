@@ -54,7 +54,7 @@ export default function SkyboxScene() {
     desatGreen:    0.5,
     darken:        0.1,
     desatOverall:  0.15,
-    brightness:    0.1,
+    brightness:    0.13,
     shimmerOpacity:0.05,
   })
 
