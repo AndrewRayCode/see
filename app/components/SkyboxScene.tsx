@@ -20,7 +20,7 @@ function CameraController() {
     const onMouseMove = (e: MouseEvent) => {
       const nx = (e.clientX / window.innerWidth) * 2 - 1
       const ny = (e.clientY / window.innerHeight) * 2 - 1
-      target.current.x = -nx * MAX_ANGLE
+      target.current.x = (Math.PI / 4 ) + -nx * MAX_ANGLE
       target.current.y = -ny * MAX_ANGLE
     }
 
@@ -40,6 +40,7 @@ const sliders = [
   { key: 'desatGreen',  label: 'Green Desat',   min: 0, max: 1 },
   { key: 'darken',      label: 'Darken',         min: 0, max: 1 },
   { key: 'desatOverall',label: 'Overall Desat',  min: 0, max: 1 },
+  { key: 'brightness',label: 'Brightness',  min: 0, max: 1 },
 ] as const
 
 type SliderKey = typeof sliders[number]['key']
@@ -51,6 +52,7 @@ export default function SkyboxScene() {
     desatGreen:   0.5,
     darken:       0.1,
     desatOverall: 0.15,
+    brightness: 0.1,
   })
 
   const handleCreated = useCallback(({ gl }: { gl: THREE.WebGLRenderer }) => {

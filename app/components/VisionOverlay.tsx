@@ -24,6 +24,7 @@ const fragmentShader = `
   uniform float uDarken;
   uniform float uDesatOverall;
   uniform float uFadeWidth;
+  uniform float uBrightness;
 
   varying vec2 vUv;
   varying vec4 vClipPos;
@@ -42,24 +43,24 @@ const fragmentShader = `
     col *= (1.0 - uDarken);
 
     vec4 blob = texture2D(uTexture, vUv);
-    vec3 final = mix(col, blob.rgb, blob.a);
+    vec3 final = mix(col, blob.rgb + uBrightness, blob.a);
 
     // Fade out toward the right edge so there's no hard cut at screen centre.
     float fadeAlpha = 1.0 - smoothstep(1.0 - uFadeWidth, 1.0, vUv.x);
-    gl_FragColor = vec4(final, fadeAlpha);
+    gl_FragColor = vec4(final, blob.a * fadeAlpha);
   }
 `
 
-type OverlayProps = { desatGreen: number; darken: number; desatOverall: number }
+type OverlayProps = { desatGreen: number; darken: number; desatOverall: number; brightness: number }
 
-export default function VisionOverlay({ desatGreen, darken, desatOverall }: OverlayProps) {
+export default function VisionOverlay({ desatGreen, darken, desatOverall, brightness }: OverlayProps) {
   const texture = useTexture('/Azoor-Blobs.png')
 
   // Ref is always current — no stale closure possible in useFrame.
-  const vals = useRef({ desatGreen, darken, desatOverall });
+  const vals = useRef({ desatGreen, darken, desatOverall, brightness });
   useEffect(() => {
-    vals.current = { desatGreen, darken, desatOverall }
-  }, [desatGreen, darken, desatOverall]);
+    vals.current = { desatGreen, darken, desatOverall, brightness }
+  }, [desatGreen, darken, desatOverall, brightness]);
 
   const overlayScene  = useMemo(() => new THREE.Scene(), [])
   const overlayCamera = useMemo(() => {
@@ -82,6 +83,7 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall }: Over
         uDarken:      { value: 0.1 },
         uDesatOverall:{ value: 0.15 },
         uFadeWidth:   { value: 0.05 },
+        uBrightness:   { value: 0.05 },
       },
       transparent: true,
       depthTest: false,
@@ -124,6 +126,7 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall }: Over
     mat.uniforms.uDesatOverall.value = vals.current.desatOverall
     // 1% of screen width expressed as a fraction of the plane's UV width.
     mat.uniforms.uFadeWidth.value    = 0.2;
+    mat.uniforms.uBrightness.value    = vals.current.brightness;
 
     // Capture main scene → render target (for background sampling).
     gl.setRenderTarget(renderTarget)
