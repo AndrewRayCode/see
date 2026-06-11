@@ -65,11 +65,73 @@ export default function SkyboxScene() {
     })
   }, [])
 
+  const [blinkPhase, setBlinkPhase] = useState<'idle' | 'closing' | 'held' | 'opening'>('idle')
+  const heldRef  = useRef(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearTimer = () => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+  }
+
+  const startBlink = () => {
+    if (heldRef.current) return
+    heldRef.current = true
+    clearTimer()
+    setBlinkPhase('closing')
+    timerRef.current = setTimeout(() => {
+      if (heldRef.current) {
+        setBlinkPhase('held')
+      } else {
+        setBlinkPhase('opening')
+        timerRef.current = setTimeout(() => setBlinkPhase('idle'), 60)
+      }
+    }, 50)
+  }
+
+  const endBlinkRef = useRef(() => {});
+  // eslint-disable-next-line react-hooks/refs
+  endBlinkRef.current = () => {
+    if (!heldRef.current) return
+    heldRef.current = false
+    clearTimer()
+    setBlinkPhase('opening')
+    timerRef.current = setTimeout(() => setBlinkPhase('idle'), 60)
+  }
+
+  useEffect(() => {
+    const handler = () => endBlinkRef.current()
+    window.addEventListener('mouseup', handler)
+    return () => window.removeEventListener('mouseup', handler)
+  }, [])
+
   const set = (key: SliderKey) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setValues(v => ({ ...v, [key]: parseFloat(e.target.value) }))
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
+      <style>{`
+        @keyframes blinkClose { from { transform: scaleY(0); } to { transform: scaleY(1.25); } }
+        @keyframes blinkOpen  { from { transform: scaleY(1.25); } to { transform: scaleY(0); } }
+      `}</style>
+
+      {blinkPhase !== 'idle' && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0,
+          width: '100%', height: '100%',
+          background: 'linear-gradient(to bottom, #000 80%, transparent 100%)',
+          transformOrigin: 'top center',
+          transform:  blinkPhase === 'held' ? 'scaleY(1.25)' : undefined,
+          animation:  blinkPhase === 'closing' ? 'blinkClose 0.05s ease-in  forwards'
+                    : blinkPhase === 'opening' ? 'blinkOpen  0.06s ease-out forwards'
+                    : undefined,
+          pointerEvents: 'none',
+          zIndex: 30,
+        }} />
+      )}
+
+      {/* Canvas click area — triggers blink, excludes fixed overlays */}
+      <div style={{ width: '100%', height: '100%' }} onMouseDown={startBlink}>
       <Canvas key={canvasKey} camera={{ fov: 75, near: 0.1, far: 1000 }} onCreated={handleCreated}>
         <CameraController />
         <Environment
@@ -77,10 +139,34 @@ export default function SkyboxScene() {
           background
         />
         <FloaterSphere />
-        <VisionOverlay {...values} />
+        <VisionOverlay {...values} blinkPhase={blinkPhase} />
       </Canvas>
+      </div>
 
+      {/* Eye delineation bar */}
       <div style={{
+        position: 'fixed',
+        top: 10,
+        left: 0,
+        width: '100%',
+        display: 'flex',
+        zIndex: 10,
+        pointerEvents: 'none',
+        userSelect: 'none',
+      }}>
+        {/* Left eye */}
+        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, paddingBottom: 6, paddingLeft: 24, paddingRight: 16 }}>
+          <span style={{ color: 'rgba(255,255,255,0.55)', fontFamily: 'monospace', fontSize: 10, letterSpacing: 2 }}>LEFT EYE</span>
+          <div style={{ width: '100%', height: 1, background: 'rgba(255,255,255,0.4)' }} />
+        </div>
+        {/* Right eye */}
+        <div style={{ width: '50%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, paddingBottom: 6, paddingLeft: 16, paddingRight: 24 }}>
+          <span style={{ color: 'rgba(255,255,255,0.55)', fontFamily: 'monospace', fontSize: 10, letterSpacing: 2 }}>RIGHT EYE</span>
+          <div style={{ width: '100%', height: 1, background: 'rgba(255,255,255,0.4)' }} />
+        </div>
+      </div>
+
+      <div onClick={e => e.stopPropagation()} style={{
         position: 'fixed',
         bottom: 16,
         right: 16,

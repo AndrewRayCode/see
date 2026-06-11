@@ -39,18 +39,17 @@ const fragmentShader = `
   void main() {
     vec2 ndc = vClipPos.xy / vClipPos.w;
     vec2 bgUV = ndc * 0.5 + 0.5;
-    vec3 col = texture2D(uBackground, bgUV).rgb;
+    vec3 bgCol = texture2D(uBackground, bgUV).rgb;
 
-    float lum = dot(col, vec3(0.299, 0.587, 0.114));
-    col.g = mix(col.g, lum, uDesatGreen);
+    float lum = dot(bgCol, vec3(0.299, 0.587, 0.114));
+    bgCol.g = mix(bgCol.g, lum, uDesatGreen);
 
-    col = desaturate(col, uDesatOverall);
-    col = desaturate(col, 0.0);
+    bgCol = desaturate(bgCol, uDesatOverall);
 
-    col *= (1.0 - uDarken);
+    bgCol *= (1.0 - uDarken);
 
     vec4 blob = texture2D(uTexture, vUv);
-    vec3 final = mix(col, blob.rgb + uBrightness, blob.a);
+    vec3 final = mix(bgCol, blob.rgb + uBrightness, blob.a);
 
     // Shimmer: radial gradient (bright centre → dark edge) oscillating at ~10 Hz.
     float dist = length(vUv - vec2(0.32, 0.5));
@@ -62,19 +61,30 @@ const fragmentShader = `
     // Fade out toward the right edge so there's no hard cut at screen centre.
     float fadeAlpha = 1.0 - smoothstep(1.0 - uFadeWidth, 1.0, vUv.x);
     gl_FragColor = vec4(final, blob.a * fadeAlpha);
+    // why doesn't this work
+    // gl_FragColor = vec4(desaturate(texture2D(uBackground, bgUV).rgb, uDesatOverall), 1.0);
   }
 `
 
-type OverlayProps = { desatGreen: number; darken: number; desatOverall: number; brightness: number; shimmerOpacity: number }
+type BlinkPhase = 'idle' | 'closing' | 'held' | 'opening'
+type OverlayProps = { desatGreen: number; darken: number; desatOverall: number; brightness: number; shimmerOpacity: number; blinkPhase: BlinkPhase }
 
-export default function VisionOverlay({ desatGreen, darken, desatOverall, brightness, shimmerOpacity }: OverlayProps) {
+export default function VisionOverlay({ desatGreen, darken, desatOverall, brightness, shimmerOpacity, blinkPhase }: OverlayProps) {
   const texture = useTexture('/Azoor-Blobs.png')
 
   // Ref is always current — no stale closure possible in useFrame.
-  const vals = useRef({ desatGreen, darken, desatOverall, brightness, shimmerOpacity });
+  const vals = useRef({ desatGreen, darken, desatOverall, brightness, shimmerOpacity, blinkPhase });
   useEffect(() => {
-    vals.current = { desatGreen, darken, desatOverall, brightness, shimmerOpacity }
-  }, [desatGreen, darken, desatOverall, brightness, shimmerOpacity]);
+    vals.current = { desatGreen, darken, desatOverall, brightness, shimmerOpacity, blinkPhase }
+  }, [desatGreen, darken, desatOverall, brightness, shimmerOpacity, blinkPhase]);
+
+  // Spring state for light-sensitivity effects driven by blink transitions.
+  const prevPhase      = useRef<BlinkPhase>('idle')
+  const shimmerSpring  = useRef({ value: shimmerOpacity, target: shimmerOpacity })
+  const shimmerBoosted = useRef(false)
+  const shimmerTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const brightnessSpring = useRef({ value: brightness, target: brightness })
+  const brightnessK    = useRef(6) // fast by default; slows to 0.9 after an opening spike
 
   const overlayScene  = useMemo(() => new THREE.Scene(), [])
   const overlayCamera = useMemo(() => {
@@ -111,7 +121,7 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall, bright
     return () => { overlayScene.remove(overlayMesh) }
   }, [overlayScene, overlayMesh])
 
-  useFrame(({ gl, scene, camera, size, clock }) => {
+  useFrame(({ gl, scene, camera, size, clock }, delta) => {
     const mat = overlayMesh.material as THREE.ShaderMaterial;
     // @ts-expect-error unknown image type
     const imgW = texture.image?.naturalWidth  ?? texture.image?.width  ?? 1
@@ -132,6 +142,45 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall, bright
     overlayMesh.scale.set(planeW, size.height, 1)
     overlayMesh.position.set(-size.width / 4, 0, 0)
 
+    // Blink phase transition detection → drive light-sensitivity springs.
+    const phase = vals.current.blinkPhase
+    if (phase !== prevPhase.current) {
+      prevPhase.current = phase
+
+      if (phase === 'closing') {
+        // Shimmer spikes at blink start; hold until the eye re-opens.
+        shimmerBoosted.current = true
+        shimmerSpring.current.target = 0.8
+        if (shimmerTimer.current) { clearTimeout(shimmerTimer.current); shimmerTimer.current = null }
+      }
+
+      if (phase === 'opening') {
+        // Keep shimmer boosted; start 3-second countdown before it returns to base.
+        shimmerBoosted.current = true
+        shimmerSpring.current.target = 0.05
+        if (shimmerTimer.current) clearTimeout(shimmerTimer.current)
+        shimmerTimer.current = setTimeout(() => { shimmerBoosted.current = false }, 500)
+
+        // Light sensitivity: immediate brightness spike, slow spring back (~5 s).
+        brightnessSpring.current.value  = 0
+        brightnessSpring.current.target = vals.current.brightness
+        brightnessK.current = 1.2
+      }
+    }
+
+    // Keep spring targets synced with slider values when not event-overridden.
+    if (!shimmerBoosted.current) shimmerSpring.current.target = vals.current.shimmerOpacity
+    brightnessSpring.current.target = vals.current.brightness
+
+    // Exponential spring physics (frame-rate independent).
+    shimmerSpring.current.value  += (shimmerSpring.current.target  - shimmerSpring.current.value)  * (1 - Math.exp(-4  * delta))
+    brightnessSpring.current.value += (brightnessSpring.current.target - brightnessSpring.current.value) * (1 - Math.exp(-brightnessK.current * delta))
+
+    // Once the slow brightness spring has settled, restore fast tracking for slider responsiveness.
+    if (brightnessK.current < 1 && Math.abs(brightnessSpring.current.value - vals.current.brightness) < 0.005) {
+      brightnessK.current = 6
+    }
+
     // Update uniforms directly on the material — guaranteed fresh every frame.
     mat.uniforms.uTexture.value      = texture
     mat.uniforms.uBackground.value   = renderTarget.texture
@@ -139,10 +188,9 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall, bright
     mat.uniforms.uDesatGreen.value   = vals.current.desatGreen
     mat.uniforms.uDarken.value       = vals.current.darken
     mat.uniforms.uDesatOverall.value = vals.current.desatOverall
-    // 1% of screen width expressed as a fraction of the plane's UV width.
     mat.uniforms.uFadeWidth.value      = 0.2
-    mat.uniforms.uBrightness.value     = vals.current.brightness
-    mat.uniforms.uShimmerOpacity.value = vals.current.shimmerOpacity
+    mat.uniforms.uBrightness.value     = brightnessSpring.current.value
+    mat.uniforms.uShimmerOpacity.value = shimmerSpring.current.value
 
     // Capture main scene → render target (for background sampling).
     gl.setRenderTarget(renderTarget)
