@@ -145,37 +145,39 @@ export default function SkyboxScene() {
         </div>
       </div>
 
-      <div onClick={e => e.stopPropagation()} style={{
-        position: 'fixed',
-        bottom: 16,
-        right: 16,
-        background: 'rgba(0,0,0,0.72)',
-        color: '#fff',
-        padding: '12px 16px',
-        borderRadius: 8,
-        fontFamily: 'monospace',
-        fontSize: 12,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        zIndex: 10,
-        minWidth: 210,
-        userSelect: 'none',
-      }}>
-        <span style={{ fontWeight: 'bold', letterSpacing: 1 }}>VISION DEBUG</span>
-        {sliders.map(({ key, label, min, max }) => (
-          <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span>{label}: {values[key].toFixed(2)}</span>
-            <input
-              type="range"
-              min={min} max={max} step={0.01}
-              value={values[key]}
-              onChange={set(key)}
-              style={{ width: '100%', accentColor: '#7df' }}
-            />
-          </label>
-        ))}
-      </div>
+      {process.env.NODE_ENV !== 'production' && (
+        <div onClick={e => e.stopPropagation()} style={{
+          position: 'fixed',
+          bottom: 16,
+          right: 16,
+          background: 'rgba(0,0,0,0.72)',
+          color: '#fff',
+          padding: '12px 16px',
+          borderRadius: 8,
+          fontFamily: 'monospace',
+          fontSize: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          zIndex: 10,
+          minWidth: 210,
+          userSelect: 'none',
+        }}>
+          <span style={{ fontWeight: 'bold', letterSpacing: 1 }}>VISION DEBUG</span>
+          {sliders.map(({ key, label, min, max }) => (
+            <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span>{label}: {values[key].toFixed(2)}</span>
+              <input
+                type="range"
+                min={min} max={max} step={0.01}
+                value={values[key]}
+                onChange={set(key)}
+                style={{ width: '100%', accentColor: '#7df' }}
+              />
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

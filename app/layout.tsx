@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "What I see",
+  title: "What I see - Andy's AZOOR",
   description: "Representation of my AZOOR",
 };
 
