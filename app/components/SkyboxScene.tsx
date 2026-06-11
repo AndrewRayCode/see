@@ -109,27 +109,6 @@ export default function SkyboxScene() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
-      <style>{`
-        @keyframes blinkClose { from { transform: scaleY(0); } to { transform: scaleY(1.25); } }
-        @keyframes blinkOpen  { from { transform: scaleY(1.25); } to { transform: scaleY(0); } }
-      `}</style>
-
-      {blinkPhase !== 'idle' && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0,
-          width: '100%', height: '100%',
-          background: 'linear-gradient(to bottom, #000 80%, transparent 100%)',
-          transformOrigin: 'top center',
-          transform:  blinkPhase === 'held' ? 'scaleY(1.25)' : undefined,
-          animation:  blinkPhase === 'closing' ? 'blinkClose 0.05s ease-in  forwards'
-                    : blinkPhase === 'opening' ? 'blinkOpen  0.06s ease-out forwards'
-                    : undefined,
-          pointerEvents: 'none',
-          zIndex: 30,
-        }} />
-      )}
-
       {/* Canvas click area — triggers blink, excludes fixed overlays */}
       <div style={{ width: '100%', height: '100%' }} onMouseDown={startBlink}>
       <Canvas key={canvasKey} camera={{ fov: 75, near: 0.1, far: 1000 }} onCreated={handleCreated}>
