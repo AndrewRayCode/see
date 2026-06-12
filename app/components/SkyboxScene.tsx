@@ -106,7 +106,7 @@ export default function SkyboxScene() {
     }, 50)
   }
 
-  const endBlinkRef = useRef(() => {});
+  const endBlinkRef = useRef(() => {})
   // eslint-disable-next-line react-hooks/refs
   endBlinkRef.current = () => {
     if (!heldRef.current) return
@@ -117,18 +117,63 @@ export default function SkyboxScene() {
   }
 
   useEffect(() => {
-    const handler = () => endBlinkRef.current()
+    const handler = (e: MouseEvent) => { if (e.button === 0) endBlinkRef.current() }
     window.addEventListener('mouseup', handler)
     return () => window.removeEventListener('mouseup', handler)
   }, [])
+
+  // Right eye — same phase machine, driven by right-click hold.
+  const [rightBlinkPhase, setRightBlinkPhase] = useState<'idle' | 'closing' | 'held' | 'opening'>('idle')
+  const rightHeldRef  = useRef(false)
+  const rightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearRightTimer = () => {
+    if (rightTimerRef.current) { clearTimeout(rightTimerRef.current); rightTimerRef.current = null }
+  }
+
+  const startRightBlink = () => {
+    if (rightHeldRef.current) return
+    rightHeldRef.current = true
+    clearRightTimer()
+    setRightBlinkPhase('closing')
+    rightTimerRef.current = setTimeout(() => {
+      if (rightHeldRef.current) {
+        setRightBlinkPhase('held')
+      } else {
+        setRightBlinkPhase('opening')
+        rightTimerRef.current = setTimeout(() => setRightBlinkPhase('idle'), 60)
+      }
+    }, 50)
+  }
+
+  const endRightBlinkRef = useRef(() => {})
+  // eslint-disable-next-line react-hooks/refs
+  endRightBlinkRef.current = () => {
+    if (!rightHeldRef.current) return
+    rightHeldRef.current = false
+    clearRightTimer()
+    setRightBlinkPhase('opening')
+    rightTimerRef.current = setTimeout(() => setRightBlinkPhase('idle'), 60)
+  }
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (e.button === 2) endRightBlinkRef.current() }
+    window.addEventListener('mouseup', handler)
+    return () => window.removeEventListener('mouseup', handler)
+  }, [])
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 0) startBlink()
+    if (e.button === 2) startRightBlink()
+  }
 
   const set = (key: SliderKey) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setValues(v => ({ ...v, [key]: parseFloat(e.target.value) }))
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
-      {/* Canvas click area — triggers blink, excludes fixed overlays */}
-      <div style={{ width: '100%', height: '100%' }} onMouseDown={startBlink}>
+      {/* Canvas click area — left click = left blink, right click = right blink */}
+      <div style={{ width: '100%', height: '100%' }} onMouseDown={handleMouseDown} onContextMenu={e => e.preventDefault()}>
       <Canvas key={canvasKey} camera={{ fov: 75, near: 0.1, far: 1000 }} onCreated={handleCreated}>
         <CameraController />
         <Environment
@@ -136,7 +181,7 @@ export default function SkyboxScene() {
           background
         />
         <FloaterSphere />
-        <VisionOverlay {...values} blinkPhase={blinkPhase} />
+        <VisionOverlay {...values} blinkPhase={blinkPhase} rightBlinkPhase={rightBlinkPhase} />
       </Canvas>
       </div>
 

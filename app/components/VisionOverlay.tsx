@@ -82,18 +82,18 @@ const blinkFragmentShader = `
 `
 
 type BlinkPhase = 'idle' | 'closing' | 'held' | 'opening'
-type OverlayProps = { desatGreen: number; darken: number; desatOverall: number; brightness: number; shimmerOpacity: number; blinkPhase: BlinkPhase }
+type OverlayProps = { desatGreen: number; darken: number; desatOverall: number; brightness: number; shimmerOpacity: number; blinkPhase: BlinkPhase; rightBlinkPhase: BlinkPhase }
 
 const CLOSE_DUR = 0.05
 const OPEN_DUR  = 0.06
 
-export default function VisionOverlay({ desatGreen, darken, desatOverall, brightness, shimmerOpacity, blinkPhase }: OverlayProps) {
+export default function VisionOverlay({ desatGreen, darken, desatOverall, brightness, shimmerOpacity, blinkPhase, rightBlinkPhase }: OverlayProps) {
   const texture = useTexture('/Azoor-Blobs.png')
 
-  const vals = useRef({ desatGreen, darken, desatOverall, brightness, shimmerOpacity, blinkPhase });
+  const vals = useRef({ desatGreen, darken, desatOverall, brightness, shimmerOpacity, blinkPhase, rightBlinkPhase });
   useEffect(() => {
-    vals.current = { desatGreen, darken, desatOverall, brightness, shimmerOpacity, blinkPhase }
-  }, [desatGreen, darken, desatOverall, brightness, shimmerOpacity, blinkPhase]);
+    vals.current = { desatGreen, darken, desatOverall, brightness, shimmerOpacity, blinkPhase, rightBlinkPhase }
+  }, [desatGreen, darken, desatOverall, brightness, shimmerOpacity, blinkPhase, rightBlinkPhase]);
 
   // Spring state for light-sensitivity effects driven by blink transitions.
   const prevPhase      = useRef<BlinkPhase>('idle')
@@ -103,9 +103,14 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall, bright
   const brightnessSpring = useRef({ value: brightness, target: brightness })
   const brightnessK    = useRef(6) // fast by default; slows after an opening spike
 
-  // Blink animation state — driven by clock time, not React state, for frame accuracy.
+  // Left blink animation state.
   const blinkPhaseStart = useRef(0)
   const blinkProgress   = useRef(0) // 0 = open, 1.25 = fully closed
+
+  // Right blink animation state.
+  const prevRightPhase      = useRef<BlinkPhase>('idle')
+  const rightBlinkPhaseStart = useRef(0)
+  const rightBlinkProgress  = useRef(0)
 
   const overlayScene  = useMemo(() => new THREE.Scene(), [])
   const overlayCamera = useMemo(() => {
@@ -115,8 +120,22 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall, bright
   }, [])
   const renderTarget = useMemo(() => new THREE.WebGLRenderTarget(1, 1), [])
 
-  // Eyelid mesh — renderOrder 0 so the shimmer mesh (order 1) draws on top of it.
+  // Eyelid meshes — renderOrder 0 so the shimmer mesh (order 1) draws on top.
   const blinkMesh = useMemo(() => {
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: blinkVertexShader,
+      fragmentShader: blinkFragmentShader,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    })
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat)
+    mesh.renderOrder = 0
+    mesh.visible = false
+    return mesh
+  }, [])
+
+  const rightBlinkMesh = useMemo(() => {
     const mat = new THREE.ShaderMaterial({
       vertexShader: blinkVertexShader,
       fragmentShader: blinkFragmentShader,
@@ -156,12 +175,14 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall, bright
 
   useEffect(() => {
     overlayScene.add(blinkMesh)
+    overlayScene.add(rightBlinkMesh)
     overlayScene.add(overlayMesh)
     return () => {
       overlayScene.remove(blinkMesh)
+      overlayScene.remove(rightBlinkMesh)
       overlayScene.remove(overlayMesh)
     }
-  }, [overlayScene, blinkMesh, overlayMesh])
+  }, [overlayScene, blinkMesh, rightBlinkMesh, overlayMesh])
 
   useFrame(({ gl, scene, camera, size, clock }, delta) => {
     const mat = overlayMesh.material as THREE.ShaderMaterial;
@@ -198,9 +219,8 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall, bright
       }
 
       if (phase === 'opening') {
-
         brightnessSpring.current.value  = 0
-        brightnessSpring.current.target = vals.current.brightness
+        // target will be set correctly below from brightnessBase
         brightnessK.current = 1.2
       }
     }
@@ -228,16 +248,45 @@ export default function VisionOverlay({ desatGreen, darken, desatOverall, bright
       blinkMesh.position.set(0, size.height / 2 * (1 - bp), 0)
     }
 
+    // Right eye blink — same animation, right half of screen only.
+    const rPhase = vals.current.rightBlinkPhase
+    if (rPhase !== prevRightPhase.current) {
+      prevRightPhase.current = rPhase
+      rightBlinkPhaseStart.current = now
+    }
+    const rElapsed = now - rightBlinkPhaseStart.current
+    if (rPhase === 'closing') {
+      const t = Math.min(rElapsed / CLOSE_DUR, 1)
+      rightBlinkProgress.current = (t * t) * 1.25
+    } else if (rPhase === 'held') {
+      rightBlinkProgress.current = 1.25
+    } else if (rPhase === 'opening') {
+      const t = Math.min(rElapsed / OPEN_DUR, 1)
+      rightBlinkProgress.current = 1.25 * (1 - t * (2 - t))
+    } else {
+      rightBlinkProgress.current = 0
+    }
+    const rbp = rightBlinkProgress.current
+    rightBlinkMesh.visible = rbp > 0.001
+    if (rbp > 0.001) {
+      rightBlinkMesh.scale.set(size.width / 2, rbp * size.height, 1)
+      rightBlinkMesh.position.set(size.width / 4, size.height / 2 * (1 - rbp), 0)
+    }
+
+    // Brightness baseline: +0.1 when both eyes are open (binocular boost).
+    const rightEyeOpen = vals.current.rightBlinkPhase === 'idle'
+    const brightnessBase = vals.current.brightness + (rightEyeOpen ? 0.1 : 0)
+
     // Keep spring targets synced with slider values when not event-overridden.
     if (!shimmerBoosted.current) shimmerSpring.current.target = vals.current.shimmerOpacity
-    brightnessSpring.current.target = vals.current.brightness
+    brightnessSpring.current.target = brightnessBase
 
     // Exponential spring physics (frame-rate independent).
     shimmerSpring.current.value    += (shimmerSpring.current.target    - shimmerSpring.current.value)    * (1 - Math.exp(-4 * delta))
     brightnessSpring.current.value += (brightnessSpring.current.target - brightnessSpring.current.value) * (1 - Math.exp(-brightnessK.current * delta))
 
     // Restore fast brightness tracking once the slow spring has settled.
-    if (brightnessK.current < 1 && Math.abs(brightnessSpring.current.value - vals.current.brightness) < 0.005) {
+    if (brightnessK.current < 1 && Math.abs(brightnessSpring.current.value - brightnessBase) < 0.005) {
       brightnessK.current = 6
     }
 
