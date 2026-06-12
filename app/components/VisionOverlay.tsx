@@ -60,7 +60,7 @@ const fragmentShader = `
 
     // Fade out toward the right edge so there's no hard cut at screen centre.
     float fadeAlpha = 1.0 - smoothstep(1.0 - uFadeWidth, 1.0, vUv.x);
-    gl_FragColor = vec4(final, blob.a * fadeAlpha);
+    gl_FragColor = vec4(final, fadeAlpha);
   }
 `
 

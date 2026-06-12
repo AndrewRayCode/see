@@ -118,8 +118,8 @@ export default function FloaterSphere() {
       uniforms: {
         time:          { value: 0 },
         speed:         { value: 0.01 },
-        veinColor:     { value: new THREE.Color(0.08, 0.06, 0.05) },
-        veinBrightness:{ value: 2.9 },
+        veinColor:     { value: new THREE.Color(0.2, 0.2, 0.2) },
+        veinBrightness:{ value: 3 },
         color:         { value: new THREE.Color(0.4, 0.4, 0.4) },
         resolution:    { value: new THREE.Vector2(1, 1) },
         randomTexture: { value: noiseTexture },

@@ -11,6 +11,10 @@ import FloaterSphere from './FloaterSphere'
 const MAX_ANGLE = 15 * (Math.PI / 180)
 const LERP = 0.06
 
+// UV coordinate on the blob texture where the central vision marker sits.
+// Adjust these to move the dot to the correct spot on the image.
+const MARKER_UV = { x: 0.32, y: 0.5 }
+
 function CameraController() {
   const { camera } = useThree()
   const target = useRef({ x: 0, y: 0 })
@@ -50,10 +54,24 @@ type OverlayValues = Record<SliderKey, number>
 
 export default function SkyboxScene() {
   const [canvasKey, setCanvasKey] = useState(0)
+
+  // Track viewport size and blob image aspect ratio so the marker stays
+  // anchored to the same UV coordinate on the overlay texture.
+  const [vp, setVp] = useState({ w: 0, h: 0 })
+  const [blobAspect, setBlobAspect] = useState(1)
+  useEffect(() => {
+    setVp({ w: window.innerWidth, h: window.innerHeight })
+    const img = new Image()
+    img.onload = () => setBlobAspect(img.naturalWidth / img.naturalHeight)
+    img.src = '/Azoor-Blobs.png'
+    const onResize = () => setVp({ w: window.innerWidth, h: window.innerHeight })
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
   const [values, setValues] = useState<OverlayValues>({
     desatGreen:    0.5,
     darken:        0.1,
-    desatOverall:  0.15,
+    desatOverall:  0.3,
     brightness:    0.13,
     shimmerOpacity:0.05,
   })
@@ -144,6 +162,35 @@ export default function SkyboxScene() {
           <div style={{ width: '100%', height: 1, background: 'rgba(255,255,255,0.4)' }} />
         </div>
       </div>
+
+      {/* Central vision marker — pinned to MARKER_UV on the blob texture */}
+      {vp.w > 0 && (() => {
+        // Mirror the plane sizing from VisionOverlay: full height, aspect-correct width,
+        // centred at 25% of the viewport (left quarter of screen).
+        const planeW  = vp.h * blobAspect
+        const markerX = vp.w / 4 + planeW * (MARKER_UV.x - 0.5)
+        // Three.js UV y=0 is bottom; CSS y=0 is top.
+        const markerY = (1 - MARKER_UV.y) * vp.h
+        return (
+          <div style={{
+            position: 'fixed',
+            left: markerX,
+            top: markerY,
+            transform: 'translate(600%, 85%)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 6,
+            pointerEvents: 'none',
+            userSelect: 'none',
+            zIndex: 10,
+            opacity: 0.5,
+          }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(255,255,255,0.7)' }} />
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace', fontSize: 10, letterSpacing: 1 }}>CENTRAL<br />VISION</span>
+          </div>
+        )
+      })()}
 
       {process.env.NODE_ENV !== 'production' && (
         <div onClick={e => e.stopPropagation()} style={{
